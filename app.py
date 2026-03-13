@@ -7,6 +7,14 @@ import spacy
 import torch.nn.functional as F
 import pandas as pd
 
+from src.retrieval import (
+    clean_evidence,
+    entity_page_retrieve,
+    dense_retrieve,
+    tfidf_retrieve,
+    hybrid_retrieve
+)
+
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from sklearn.metrics.pairwise import cosine_similarity
@@ -91,71 +99,6 @@ def load_all():
     nlp
 ) = load_all()
 
-# --------------------------------------------------
-# HELPERS
-# --------------------------------------------------
-
-def clean_evidence(text):
-    return text.split("\t")[0]
-
-# --------------------------------------------------
-# RETRIEVAL
-# --------------------------------------------------
-
-def entity_page_retrieve(claim, max_sentences=25):
-
-    doc = nlp(claim)
-    entities = [ent.text.replace(" ", "_") for ent in doc.ents]
-
-    candidates = []
-
-    for ent in entities:
-        if ent in page_index:
-            sentence_dict = page_index[ent]
-            count = 0
-            for _, sentence in sentence_dict.items():
-                if sentence.strip() == "":
-                    continue
-                candidates.append({"sentence": sentence})
-                count += 1
-                if count >= max_sentences:
-                    break
-
-    return candidates
-
-
-def dense_retrieve(claim, top_k=50):
-
-    claim_embedding = dense_model.encode([claim], convert_to_numpy=True)
-    scores, indices = index.search(claim_embedding, top_k)
-
-    results = []
-    for idx in indices[0]:
-        results.append({"sentence": sentences[idx]})
-
-    return results
-
-
-def tfidf_retrieve(claim, top_k=50):
-
-    claim_vec = tfidf_vectorizer.transform([claim])
-    similarities = cosine_similarity(claim_vec, tfidf_matrix)[0]
-    top_indices = similarities.argsort()[::-1][:top_k]
-
-    results = []
-    for idx in top_indices:
-        results.append({"sentence": sentences[idx]})
-
-    return results
-
-
-def hybrid_retrieve(claim, top_k=50):
-
-    dense_results = dense_retrieve(claim, top_k)
-    tfidf_results = tfidf_retrieve(claim, top_k)
-
-    combined = {r["sentence"]: r for r in dense_results + tfidf_results}
-    return list(combined.values())
 
 # --------------------------------------------------
 # RERANKING
@@ -275,8 +218,16 @@ def relation_filter(claim, candidates):
 def verify_claim(claim):
 
     # STEP 1: Retrieval
-    entity_candidates = entity_page_retrieve(claim)
-    hybrid_candidates = hybrid_retrieve(claim, top_k=50)
+    entity_candidates = entity_page_retrieve(claim, nlp, page_index)
+    hybrid_candidates = hybrid_retrieve(
+    claim,
+    dense_model,
+    index,
+    sentences,
+    tfidf_vectorizer,
+    tfidf_matrix,
+    top_k=50
+    )
 
     candidates = (entity_candidates + hybrid_candidates)[:80]
 
