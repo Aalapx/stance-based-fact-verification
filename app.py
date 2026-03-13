@@ -1,26 +1,27 @@
 import streamlit as st
 import torch
-import faiss
-import pickle
 import numpy as np
-import spacy
 import torch.nn.functional as F
 import pandas as pd
 
+from src.model_loader import load_all
 from src.pipeline import verify_claim
-from src.stance import classify_stance
-from src.reranker import rerank
-from src.retrieval import (
-    clean_evidence,
-    entity_page_retrieve,
-    dense_retrieve,
-    tfidf_retrieve,
-    hybrid_retrieve
-)
+resources = load_all()
 
-from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from sklearn.metrics.pairwise import cosine_similarity
+dense_model = resources["dense_model"]
+reranker_tokenizer = resources["reranker_tokenizer"]
+reranker_model = resources["reranker_model"]
+stance_tokenizer = resources["stance_tokenizer"]
+stance_model = resources["stance_model"]
+index = resources["index"]
+sentences = resources["sentences"]
+tfidf_vectorizer = resources["tfidf_vectorizer"]
+tfidf_matrix = resources["tfidf_matrix"]
+page_index = resources["page_index"]
+nlp = resources["nlp"]
+
+
+
 
 torch.set_grad_enabled(False)
 
@@ -31,77 +32,6 @@ torch.set_grad_enabled(False)
 st.set_page_config(page_title="Stance Verification System", layout="wide")
 st.title("🧠 Stance-based Fact Verification System")
 st.markdown("Dense + TFIDF Retrieval • Cross-Encoder Reranking • Multi-Evidence Stance")
-
-# --------------------------------------------------
-# LOAD MODELS (CACHED)
-# --------------------------------------------------
-
-@st.cache_resource
-def load_all():
-
-    dense_model = SentenceTransformer("all-MiniLM-L6-v2")
-
-    reranker_tokenizer = AutoTokenizer.from_pretrained(
-        "models/fever_reranker_model_final"
-    )
-    reranker_model = AutoModelForSequenceClassification.from_pretrained(
-        "models/fever_reranker_model_final"
-    )
-    reranker_model.eval()
-
-    stance_tokenizer = AutoTokenizer.from_pretrained(
-        "models/fever_finetuned_model"
-    )
-    stance_model = AutoModelForSequenceClassification.from_pretrained(
-        "models/fever_finetuned_model"
-    )
-    stance_model.eval()
-
-    index = faiss.read_index("data/faiss_index_1M_fixed.bin")
-
-    with open("data/sentences_1M.pkl", "rb") as f:
-        sentences = pickle.load(f)
-
-    with open("data/tfidf_index_1M.pkl", "rb") as f:
-        tfidf_data = pickle.load(f)
-
-    tfidf_vectorizer = tfidf_data["vectorizer"]
-    tfidf_matrix = tfidf_data["matrix"]
-
-    with open("data/wiki_index.pkl", "rb") as f:
-        page_index = pickle.load(f)
-
-    nlp = spacy.load("en_core_web_sm")
-
-    return (
-        dense_model,
-        reranker_tokenizer,
-        reranker_model,
-        stance_tokenizer,
-        stance_model,
-        index,
-        sentences,
-        tfidf_vectorizer,
-        tfidf_matrix,
-        page_index,
-        nlp
-    )
-
-
-(
-    dense_model,
-    reranker_tokenizer,
-    reranker_model,
-    stance_tokenizer,
-    stance_model,
-    index,
-    sentences,
-    tfidf_vectorizer,
-    tfidf_matrix,
-    page_index,
-    nlp
-) = load_all()
-
 
 
 # --------------------------------------------------
@@ -225,12 +155,7 @@ if st.button("Verify"):
                 reranker_tokenizer,
                 reranker_model,
                 stance_tokenizer,
-                stance_model,
-                entity_page_retrieve,
-                hybrid_retrieve,
-                rerank,
-                clean_evidence,
-                classify_stance
+                stance_model
             )
 
         stance = result["stance"]
