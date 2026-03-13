@@ -7,6 +7,8 @@ import spacy
 import torch.nn.functional as F
 import pandas as pd
 
+from src.stance import classify_stance
+from src.reranker import rerank
 from src.retrieval import (
     clean_evidence,
     entity_page_retrieve,
@@ -100,63 +102,11 @@ def load_all():
 ) = load_all()
 
 
-# --------------------------------------------------
-# RERANKING
-# --------------------------------------------------
-
-def rerank(claim, candidates, top_k=3):
-
-    if len(candidates) == 0:
-        return []
-
-    sentences_only = [clean_evidence(c["sentence"]) for c in candidates]
-
-    inputs = reranker_tokenizer(
-        [claim] * len(sentences_only),
-        sentences_only,
-        padding=True,
-        truncation=True,
-        max_length=256,
-        return_tensors="pt"
-    )
-
-    with torch.no_grad():
-        outputs = reranker_model(**inputs)
-        probs = F.softmax(outputs.logits, dim=1)[:, 1]
-
-    scored = list(zip(candidates, probs.tolist()))
-    scored.sort(key=lambda x: x[1], reverse=True)
-
-    return scored[:top_k]
 
 # --------------------------------------------------
 # STANCE
 # --------------------------------------------------
 
-def joint_evidence_stance(claim, top_ranked):
-
-    # Use only best evidence for stability
-    best = top_ranked[0]
-    sentence = clean_evidence(best[0]["sentence"])
-
-    inputs = stance_tokenizer(
-        claim,
-        sentence,
-        return_tensors="pt",
-        truncation=True,
-        padding=True,
-        max_length=256,
-    )
-
-    with torch.no_grad():
-        outputs = stance_model(**inputs)
-
-    probs = torch.softmax(outputs.logits, dim=1).numpy()[0]
-    pred_id = int(np.argmax(probs))
-    confidence = float(np.max(probs))
-    label = stance_model.config.id2label[pred_id]
-
-    return label, confidence, [sentence]
 
 ###
 def detect_relation_type(claim):
@@ -217,16 +167,19 @@ def relation_filter(claim, candidates):
 
 def verify_claim(claim):
 
+    # -----------------------------
     # STEP 1: Retrieval
+    # -----------------------------
     entity_candidates = entity_page_retrieve(claim, nlp, page_index)
+
     hybrid_candidates = hybrid_retrieve(
-    claim,
-    dense_model,
-    index,
-    sentences,
-    tfidf_vectorizer,
-    tfidf_matrix,
-    top_k=50
+        claim,
+        dense_model,
+        index,
+        sentences,
+        tfidf_vectorizer,
+        tfidf_matrix,
+        top_k=50
     )
 
     candidates = (entity_candidates + hybrid_candidates)[:80]
@@ -243,8 +196,16 @@ def verify_claim(claim):
             }
         }
 
-    # STEP 2: Rerank (Top 1)
-    top_ranked = rerank(claim, candidates, top_k=1)
+    # -----------------------------
+    # STEP 2: Reranking
+    # -----------------------------
+    top_ranked = rerank(
+        claim,
+        candidates,
+        reranker_tokenizer,
+        reranker_model,
+        top_k=1
+    )
 
     if len(top_ranked) == 0:
         return {
@@ -260,7 +221,9 @@ def verify_claim(claim):
 
     best_sentence = clean_evidence(top_ranked[0][0]["sentence"])
 
-    # -------- Semantic similarity guard --------
+    # -----------------------------
+    # STEP 3: Semantic Similarity Guard
+    # -----------------------------
     claim_emb = dense_model.encode([claim], convert_to_numpy=True)
     evidence_emb = dense_model.encode([best_sentence], convert_to_numpy=True)
 
@@ -278,38 +241,19 @@ def verify_claim(claim):
             }
         }
 
-    # STEP 3: Stance classification
-    inputs = stance_tokenizer(
+    # -----------------------------
+    # STEP 4: Stance Classification (Modular)
+    # -----------------------------
+    stance, confidence, prob_dict = classify_stance(
         claim,
         best_sentence,
-        return_tensors="pt",
-        truncation=True,
-        padding=True,
-        max_length=256,
+        stance_tokenizer,
+        stance_model
     )
 
-    with torch.no_grad():
-        outputs = stance_model(**inputs)
-
-    probs = torch.softmax(outputs.logits, dim=1).numpy()[0]
-
-    label_map = {
-        0: "SUPPORTS",
-        1: "REFUTES",
-        2: "NOT ENOUGH INFO"
-    }
-
-    pred_id = int(np.argmax(probs))
-    stance = label_map[pred_id]
-    confidence = float(np.max(probs))
-
-    prob_dict = {
-        "SUPPORTS": float(probs[0]),
-        "REFUTES": float(probs[1]),
-        "NOT ENOUGH INFO": float(probs[2])
-    }
-
-    # Confidence gating
+    # -----------------------------
+    # STEP 5: Confidence Gating
+    # -----------------------------
     if stance != "NOT ENOUGH INFO" and confidence < 0.85:
         return {
             "stance": "NOT ENOUGH INFO",
