@@ -56,7 +56,7 @@ def verify_claim(
 
     similarity = cosine_similarity(claim_emb, evidence_emb)[0][0]
 
-    if similarity < 0.5:
+    if similarity < 0.7:
         return {"stance": "NOT ENOUGH INFO", "confidence": similarity, "evidences": [best_sentence], "probabilities": {}}
 
     # -------- STANCE --------
