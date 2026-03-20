@@ -1,14 +1,11 @@
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
 
 
 def clean_evidence(text):
-    return text.split("\t")[0]
+    return text.replace("passage: ", "").split("\t")[0]
 
 
-# --------------------------------------------------
-# ENTITY PAGE RETRIEVAL
-# --------------------------------------------------
+# ---------------- ENTITY ----------------
 
 def entity_page_retrieve(claim, nlp, page_index, max_sentences=25):
 
@@ -32,42 +29,26 @@ def entity_page_retrieve(claim, nlp, page_index, max_sentences=25):
     return candidates
 
 
-# --------------------------------------------------
-# DENSE RETRIEVAL
-# --------------------------------------------------
+# ---------------- DENSE ----------------
 
 def dense_retrieve(claim, dense_model, index, sentences, top_k=50):
 
-    claim_embedding = dense_model.encode([claim], convert_to_numpy=True)
+    claim_embedding = dense_model.encode(
+        ["query: " + claim],
+        convert_to_numpy=True
+    )
+
     scores, indices = index.search(claim_embedding, top_k)
 
     results = []
     for idx in indices[0]:
-        results.append({"sentence": sentences[idx]})
+        if idx < len(sentences):   # 🔥 CRASH FIX
+            results.append({"sentence": sentences[idx]})
 
     return results
 
 
-# --------------------------------------------------
-# TFIDF RETRIEVAL
-# --------------------------------------------------
-
-def tfidf_retrieve(claim, tfidf_vectorizer, tfidf_matrix, sentences, top_k=50):
-
-    claim_vec = tfidf_vectorizer.transform([claim])
-    similarities = cosine_similarity(claim_vec, tfidf_matrix)[0]
-    top_indices = similarities.argsort()[::-1][:top_k]
-
-    results = []
-    for idx in top_indices:
-        results.append({"sentence": sentences[idx]})
-
-    return results
-
-
-# --------------------------------------------------
-# HYBRID RETRIEVAL
-# --------------------------------------------------
+# ---------------- HYBRID (TEMP) ----------------
 
 def hybrid_retrieve(
     claim,
@@ -78,15 +59,6 @@ def hybrid_retrieve(
     tfidf_matrix,
     top_k=50
 ):
-
-    dense_results = dense_retrieve(
+    return dense_retrieve(
         claim, dense_model, index, sentences, top_k
     )
-
-    tfidf_results = tfidf_retrieve(
-        claim, tfidf_vectorizer, tfidf_matrix, sentences, top_k
-    )
-
-    combined = {r["sentence"]: r for r in dense_results + tfidf_results}
-
-    return list(combined.values())

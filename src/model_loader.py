@@ -1,17 +1,18 @@
-# src/model_loader.py
-
 import torch
 import faiss
-import pickle
+import json
 import spacy
+import pickle
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 
 def load_all():
 
-    dense_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # 🔥 E5 MODEL
+    dense_model = SentenceTransformer("intfloat/e5-large")
 
+    # 🔥 RERANKER
     reranker_tokenizer = AutoTokenizer.from_pretrained(
         "models/fever_reranker_model_final"
     )
@@ -20,6 +21,7 @@ def load_all():
     )
     reranker_model.eval()
 
+    # 🔥 STANCE
     stance_tokenizer = AutoTokenizer.from_pretrained(
         "models/fever_finetuned_model"
     )
@@ -28,20 +30,22 @@ def load_all():
     )
     stance_model.eval()
 
-    index = faiss.read_index("data/faiss_index_1M_fixed.bin")
+    # 🔥 NEW INDEX
+    index = faiss.read_index("data/fever_hnsw.index")
 
-    with open("data/sentences_1M.pkl", "rb") as f:
-        sentences = pickle.load(f)
+    # 🔥 NEW SENTENCES
+    with open("data/fever_texts.json", "r") as f:
+        sentences = json.load(f)
 
-    with open("data/tfidf_index_1M.pkl", "rb") as f:
-        tfidf_data = pickle.load(f)
+    # ❌ TEMP DISABLED
+    tfidf_vectorizer = None
+    tfidf_matrix = None
 
-    tfidf_vectorizer = tfidf_data["vectorizer"]
-    tfidf_matrix = tfidf_data["matrix"]
-
+    # 🔥 PAGE INDEX
     with open("data/wiki_index.pkl", "rb") as f:
         page_index = pickle.load(f)
 
+    # 🔥 NLP
     nlp = spacy.load("en_core_web_sm")
 
     return {
