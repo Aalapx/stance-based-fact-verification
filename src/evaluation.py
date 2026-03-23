@@ -3,13 +3,6 @@ from tqdm import tqdm
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 
 from src.pipeline import verify_claim
-from src.retrieval import (
-    clean_evidence,
-    entity_page_retrieve,
-    hybrid_retrieve
-)
-from src.reranker import rerank
-from src.stance import classify_stance
 
 
 def load_fever_dev(path):
@@ -27,12 +20,11 @@ def evaluate_stance(
     dense_model,
     index,
     sentences,
-    tfidf_vectorizer,
-    tfidf_matrix,
     reranker_tokenizer,
     reranker_model,
     stance_tokenizer,
-    stance_model
+    stance_model,
+    bm25
 ):
     gold_labels = []
     predicted_labels = []
@@ -48,17 +40,11 @@ def evaluate_stance(
             dense_model,
             index,
             sentences,
-            tfidf_vectorizer,
-            tfidf_matrix,
             reranker_tokenizer,
             reranker_model,
             stance_tokenizer,
             stance_model,
-            entity_page_retrieve,
-            hybrid_retrieve,
-            rerank,
-            clean_evidence,
-            classify_stance
+            bm25
         )
 
         predicted = result["stance"]
@@ -88,10 +74,9 @@ if __name__ == "__main__":
     stance_model = resources["stance_model"]
     index = resources["index"]
     sentences = resources["sentences"]
-    tfidf_vectorizer = resources["tfidf_vectorizer"]
-    tfidf_matrix = resources["tfidf_matrix"]
     page_index = resources["page_index"]
     nlp = resources["nlp"]
+    bm25 = resources["bm25"]
 
     print("Loading FEVER dev set...")
     dev_data = load_fever_dev("datasets/dev.jsonl")
@@ -104,12 +89,11 @@ if __name__ == "__main__":
         dense_model,
         index,
         sentences,
-        tfidf_vectorizer,
-        tfidf_matrix,
         reranker_tokenizer,
         reranker_model,
         stance_tokenizer,
-        stance_model
+        stance_model,
+        bm25
     )
 
     print("\n===== RESULTS =====")

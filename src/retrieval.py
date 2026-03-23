@@ -1,4 +1,5 @@
 import numpy as np
+from rank_bm25 import BM25Okapi
 
 
 def clean_evidence(text):
@@ -42,23 +43,32 @@ def dense_retrieve(claim, dense_model, index, sentences, top_k=50):
 
     results = []
     for idx in indices[0]:
-        if idx < len(sentences):   # 🔥 CRASH FIX
+        if idx < len(sentences):
             results.append({"sentence": sentences[idx]})
 
     return results
 
 
-# ---------------- HYBRID (TEMP) ----------------
+# ---------------- BM25 ----------------
 
-def hybrid_retrieve(
-    claim,
-    dense_model,
-    index,
-    sentences,
-    tfidf_vectorizer,
-    tfidf_matrix,
-    top_k=50
-):
-    return dense_retrieve(
-        claim, dense_model, index, sentences, top_k
-    )
+def build_bm25(sentences):
+    tokenized = [s.lower().split() for s in sentences]
+    return BM25Okapi(tokenized)
+
+
+def bm25_retrieve(claim, bm25, sentences, top_k=50):
+
+    tokenized_query = claim.lower().split()
+    scores = bm25.get_scores(tokenized_query)
+
+    top_indices = sorted(
+        range(len(scores)),
+        key=lambda i: scores[i],
+        reverse=True
+    )[:top_k]
+
+    results = []
+    for idx in top_indices:
+        results.append({"sentence": sentences[idx]})
+
+    return results

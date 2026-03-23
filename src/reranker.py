@@ -1,29 +1,24 @@
 import torch
-import torch.nn.functional as F
-from src.retrieval import clean_evidence
 
 
-def rerank(claim, candidates, reranker_tokenizer, reranker_model, top_k=3):
+def rerank(claim, candidates, tokenizer, model, top_k=5):
 
-    if len(candidates) == 0:
-        return []
+    sentences = [c["sentence"] for c in candidates]
 
-    sentences_only = [clean_evidence(c["sentence"]) for c in candidates]
-
-    inputs = reranker_tokenizer(
-        [claim] * len(sentences_only),
-        sentences_only,
+    inputs = tokenizer(
+        [claim] * len(sentences),
+        sentences,
         padding=True,
         truncation=True,
-        max_length=256,
         return_tensors="pt"
     )
 
     with torch.no_grad():
-        outputs = reranker_model(**inputs)
-        probs = F.softmax(outputs.logits, dim=1)[:, 1]
+        outputs = model(**inputs)
+        scores = torch.softmax(outputs.logits, dim=1)[:, 1]
 
-    scored = list(zip(candidates, probs.tolist()))
-    scored.sort(key=lambda x: x[1], reverse=True)
+    scored = list(zip(candidates, scores.tolist()))
 
-    return scored[:top_k]
+    ranked = sorted(scored, key=lambda x: x[1], reverse=True)
+
+    return ranked[:top_k]
